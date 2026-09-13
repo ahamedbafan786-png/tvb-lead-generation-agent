@@ -41,19 +41,29 @@ TECH_SECTORS = [
 ]
 
 REVENUE_QUERY_TEMPLATES = [
-    '{sector} startup {region} ARR 1M to 5M revenue -fund -consulting -report',
-    '{sector} software startup {region} 1M to 5M annual recurring revenue -agency -recruiter',
-    'bootstrapped {sector} startup {region} ARR revenue -consulting -directory',
-    'profitable {sector} platform {region} revenue 1M to 5M -agency -report',
-    '{sector} software startup {region} reached 1M to 4M ARR -fund -report'
+    '{sector} startup {region} "$1M" OR "$2M" "ARR" founder -fund -consulting -report',
+    '{sector} software {region} "$2M" OR "$3M" "annual recurring revenue" CEO -agency -recruiter',
+    '{sector} platform {region} "$1M" OR "$4M" "ARR" co-founder -fund -directory',
+    '{sector} startup {region} "reached $1M ARR" OR "reached $2M ARR" founder -consulting -venture',
+    '{sector} software startup {region} "$1.5M" OR "$3M" "ARR" CEO 2024 2025 -report -vc',
+    '{sector} SaaS {region} "€1M" OR "€2M" "ARR" founder -fund -agency',
+    '{sector} platform {region} "profitable" "$1M" OR "$2.5M" revenue CEO -agency -report',
+    '{sector} software {region} "bootstrapped" "$1M" OR "$3M" "ARR" founder -consulting -directory',
+    '{sector} startup {region} "£1M" OR "£2M" "ARR" founder -fund -venture',
+    '{sector} platform {region} "$1M" OR "$5M" "annual recurring revenue" co-founder -report -recruiter'
 ]
 
 FUNDING_QUERY_TEMPLATES = [
-    '{sector} startup {region} "seed round" OR "seed funding" -fund -vc -consulting',
-    '{sector} software startup {region} secures 1M to 5M seed funding -agency -recruiter',
-    '{sector} platform {region} closes 1M to 5M seed funding round -fund -report',
-    '{sector} startup {region} announces seed funding 2025 2026 -fund -directory',
-    '{sector} tech startup {region} raised seed or Series A -fund -venture'
+    '{sector} startup {region} "raised $1M" OR "raised $2M" seed founder -fund -vc',
+    '{sector} software {region} "closes $2M" OR "closes $3M" seed round CEO -agency -report',
+    '{sector} platform {region} "secures $1.5M" OR "secures $2.5M" seed co-founder -fund -consulting',
+    '{sector} tech startup {region} "seed round" "$1M" OR "$2M" founder 2024 2025 -venture -directory',
+    '{sector} software startup {region} "raised $3M" OR "raised $4M" seed CEO -agency -recruiter',
+    '{sector} platform {region} "raised €1M" OR "raised €2M" seed founder -fund -report',
+    '{sector} startup {region} "secures $3M" OR "secures $5M" seed round CEO -fund -vc',
+    '{sector} software {region} "raised £1M" OR "raised £2M" seed co-founder -consulting -directory',
+    '{sector} platform {region} "closes $1M" OR "closes $2.5M" seed round founder 2024 2025 -fund -recruiter',
+    '{sector} tech startup {region} "pre-seed" OR "seed" "$1M" OR "$3M" CEO -agency -venture'
 ]
 
 HTTP_HEADERS = {

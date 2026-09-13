@@ -10,7 +10,7 @@ import logging
 import random
 import urllib.request
 import urllib.error
-from typing import Optional
+from typing import Optional, Any
 import threading
 
 from google import genai
@@ -145,28 +145,120 @@ def is_search_quota_exhausted(exc: Exception) -> bool:
 # ==============================================================================
 
 def generate_queries(count: int = 35, seed: Optional[int] = None) -> list[str]:
-    """Generates a randomized matrix of non-US revenue and funding search queries."""
+    """
+    Generates a randomized matrix of non-US revenue and funding search queries.
+    Guarantees 100% unique queries and diverse geographic and sector coverage.
+    """
     if seed is not None:
         random.seed(seed)
 
-    queries = []
+    queries: list[str] = []
+    seen: set[str] = set()
+
     half = count // 2
     rem = count - half
 
-    for _ in range(half):
-        region = random.choice(NON_US_REGIONS)
-        sector = random.choice(TECH_SECTORS)
-        tpl = random.choice(REVENUE_QUERY_TEMPLATES)
-        queries.append(tpl.format(region=region, sector=sector))
+    shuffled_regions = list(NON_US_REGIONS)
+    shuffled_sectors = list(TECH_SECTORS)
+    random.shuffle(shuffled_regions)
+    random.shuffle(shuffled_sectors)
 
-    for _ in range(rem):
-        region = random.choice(NON_US_REGIONS)
-        sector = random.choice(TECH_SECTORS)
+    # Generate revenue queries
+    r_idx = 0
+    s_idx = 0
+    attempts = 0
+    while len(queries) < half and attempts < 2000:
+        attempts += 1
+        region = shuffled_regions[r_idx % len(shuffled_regions)]
+        sector = shuffled_sectors[s_idx % len(shuffled_sectors)]
+        r_idx += 1
+        s_idx += 1
+        tpl = random.choice(REVENUE_QUERY_TEMPLATES)
+        q = tpl.format(region=region, sector=sector)
+        if q not in seen:
+            seen.add(q)
+            queries.append(q)
+
+    # Generate funding queries
+    attempts = 0
+    while len(queries) < count and attempts < 2000:
+        attempts += 1
+        region = shuffled_regions[r_idx % len(shuffled_regions)]
+        sector = shuffled_sectors[s_idx % len(shuffled_sectors)]
+        r_idx += 1
+        s_idx += 1
         tpl = random.choice(FUNDING_QUERY_TEMPLATES)
-        queries.append(tpl.format(region=region, sector=sector))
+        q = tpl.format(region=region, sector=sector)
+        if q not in seen:
+            seen.add(q)
+            queries.append(q)
 
     random.shuffle(queries)
     return queries
+
+
+def audit_query_quality(queries: list[str]) -> dict[str, Any]:
+    """
+    Offline telemetry metric assessing search query signal quality.
+    Evaluates financial signal, founder signal, negative exclusions, and diversity.
+    """
+    if not queries:
+        return {
+            "total_queries": 0,
+            "unique_queries": 0,
+            "high_signal_queries": 0,
+            "financial_signal_queries": 0,
+            "founder_signal_queries": 0,
+            "negative_filtered_queries": 0,
+            "distinct_regions_hit": 0,
+            "distinct_sectors_hit": 0,
+            "high_signal_ratio": 0.0,
+        }
+
+    unique_queries = set(queries)
+
+    financial_keywords = [
+        "$1m", "$2m", "$3m", "$4m", "$5m", "$1.5m", "$2.5m",
+        "€1m", "€2m", "£1m", "£2m",
+        "arr", "annual recurring revenue", "seed", "pre-seed", "revenue", "funding"
+    ]
+    founder_keywords = ["founder", "co-founder", "ceo", "executive"]
+    negative_terms = ["-fund", "-consulting", "-agency", "-recruiter", "-report", "-vc", "-directory", "-venture"]
+
+    financial_count = 0
+    founder_count = 0
+    negative_count = 0
+    high_signal_count = 0
+
+    for q in unique_queries:
+        q_lower = q.lower()
+        has_fin = any(kw in q_lower for kw in financial_keywords)
+        has_founder = any(fk in q_lower for fk in founder_keywords)
+        has_neg = any(nk in q_lower for nk in negative_terms)
+
+        if has_fin:
+            financial_count += 1
+        if has_founder:
+            founder_count += 1
+        if has_neg:
+            negative_count += 1
+        if has_fin and has_founder and has_neg:
+            high_signal_count += 1
+
+    regions_hit = {r for r in NON_US_REGIONS if any(r.lower() in q.lower() for q in unique_queries)}
+    sectors_hit = {s for s in TECH_SECTORS if any(s.lower() in q.lower() for q in unique_queries)}
+
+    return {
+        "total_queries": len(queries),
+        "unique_queries": len(unique_queries),
+        "high_signal_queries": high_signal_count,
+        "financial_signal_queries": financial_count,
+        "founder_signal_queries": founder_count,
+        "negative_filtered_queries": negative_count,
+        "distinct_regions_hit": len(regions_hit),
+        "distinct_sectors_hit": len(sectors_hit),
+        "high_signal_ratio": round(high_signal_count / len(unique_queries), 4) if unique_queries else 0.0,
+    }
 
 
 # ==============================================================================
