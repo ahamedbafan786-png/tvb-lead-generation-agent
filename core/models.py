@@ -5,7 +5,7 @@ Pydantic data models for candidate tracking, structured audits, and qualified le
 
 from enum import Enum
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 class RevenuePeriod(str, Enum):
     ARR = "ARR"
@@ -205,7 +205,7 @@ class LeadRecord(BaseModel):
     ceo_cofounder_name: str
     verified_email: str
     email_source_url: str
-    email_source_type: Optional[str] = None
+    email_source_type: Optional[str] = Field(default=None)
     hq_location: str
     financial_signal: str
     financial_evidence_date: Optional[str] = None
@@ -227,6 +227,15 @@ class LeadRecord(BaseModel):
     us_presence_source_url: Optional[str] = Field(default=None)
     us_presence_source_quote: Optional[str] = Field(default=None)
     evidence: Optional[AuditEvidence] = Field(default=None)
+
+    @model_validator(mode="after")
+    def sync_email_source_type(self) -> "LeadRecord":
+        if not self.email_source_type:
+            if self.evidence and self.evidence.email and self.evidence.email.source_type:
+                self.email_source_type = self.evidence.email.source_type
+            else:
+                self.email_source_type = "FIRST_PARTY_OFFICIAL"
+        return self
 
 class FunnelMetrics(BaseModel):
     candidates_found: int = 0

@@ -35,6 +35,16 @@ def get_tavily_api_key() -> str:
         pass
     return os.getenv("TAVILY_API_KEY", "")
 
+def _get_record_email_source_type(record, default: str = "N/A") -> str:
+    """Safely extracts email source type from record or embedded evidence."""
+    source_type = getattr(record, "email_source_type", None)
+    if source_type:
+        return str(source_type)
+    evidence = getattr(record, "evidence", None)
+    if evidence and getattr(evidence, "email", None) and getattr(evidence.email, "source_type", None):
+        return str(evidence.email.source_type)
+    return default
+
 api_key = get_gemini_api_key()
 tavily_key = get_tavily_api_key()
 
@@ -111,7 +121,7 @@ if st.button("🚀 Run Lead Generation Agent", type="primary", disabled=not can_
                 "CEO / Co-Founder": lead.ceo_cofounder_name,
                 "Verified Email": lead.verified_email,
                 "Email Evidence URL": lead.email_source_url,
-                "Email Source Type": lead.email_source_type or "FIRST_PARTY_OFFICIAL",
+                "Email Source Type": _get_record_email_source_type(lead, default="FIRST_PARTY_OFFICIAL"),
                 "Financial Evidence URL": lead.financial_source_url or "N/A",
                 "Financial Signal": lead.financial_signal,
                 "Revenue Period": lead.revenue_period or "N/A",
@@ -151,7 +161,7 @@ if st.button("🚀 Run Lead Generation Agent", type="primary", disabled=not can_
                 "Latest Round Date": rec.latest_round_date or "N/A",
                 "Evidence Date": rec.financial_evidence_date or "N/A",
                 "Recency Basis": rec.recency_basis or "N/A",
-                "Email Source Type": rec.email_source_type or "N/A",
+                "Email Source Type": _get_record_email_source_type(rec, default="N/A"),
                 "US Presence Result": rec.us_presence_result,
                 "US Presence Evidence": rec.us_presence_evidence or "None",
                 "HQ Location": rec.hq_location
