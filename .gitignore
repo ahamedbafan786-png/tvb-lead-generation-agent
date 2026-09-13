@@ -1,0 +1,40 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Testing & Coverage
+.coverage
+htmlcov/
+*.log
+
+# Benchmark outputs & temporary scratch
+*benchmark*.json
+*benchmark*.log
+scratch/
+
+# IDE / Editor state
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Bootstrap / legacy helper
+bootstrap_tvb.py
