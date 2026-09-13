@@ -20,7 +20,7 @@ The TVB Lead-Generation Agent is an autonomous, evidence-backed research agent t
 ## Primary Architecture & Modules
 - `app.py`: Streamlit web interface with run controls, live telemetry, CSV export, and structured Audit Inspector.
 - `.streamlit/config.toml`: Production configuration for headless Streamlit execution and UI theming.
-- `core/config.py`: Search matrices across 22 non-US hubs, 12 software sectors, Tavily 60-call ceiling, and `MAX_CANDIDATES_PER_RUN` (150).
+- `core/config.py`: Search matrices across 32 non-US hubs, 12 software sectors, Tavily 60-call ceiling, and `MAX_CANDIDATES_PER_RUN` (150).
 - `core/models.py`: Pydantic data schemas for candidates, audit logs (`CandidateAuditRecord`), and qualified leads (`LeadRecord`).
 - `core/recency.py`: 18-month (~548 days) true date-math recency engine with future and malformed date safety.
 - `core/discovery.py`: Tavily Basic Search discovery engine with query normalization, thread-safe cache, and budget enforcement.
@@ -33,7 +33,7 @@ The TVB Lead-Generation Agent is an autonomous, evidence-backed research agent t
 ---
 
 ## Current Verified State
-- **Automated Tests:** **447 automated tests passing** across 23 test files (0 failures, 0 regressions).
+- **Automated Tests:** **481 automated tests passing** across 26 test files (0 failures, 0 regressions).
 - **Offline Safety:** Tests execute 100% deterministically offline with zero live Tavily or Gemini credits consumed.
 - **Credit Safeguards:** Hard per-run ceiling of 60 Tavily calls; cache cleared at pipeline start; failed calls count towards attempt budget.
 - **Security:** Strict SSRF blocking (private IPs, link-local, cloud metadata), redirect re-validation, TLS verification enabled.

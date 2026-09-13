@@ -15,7 +15,7 @@ An autonomous data pipeline built for venture builders to discover, verify, and 
 ---
 
 ## 3. Architecture Overview
-- **Discovery:** Tavily Basic Search across 22 non-US tech hubs and 12 B2B software sectors.
+- **Discovery:** Tavily Basic Search across 32 non-US tech hubs and 12 B2B software sectors.
 - **Budget Control:** Hard per-run cap of 60 Tavily calls, thread-safe cache isolation, and global `MAX_CANDIDATES_PER_RUN` cap (150).
 - **Prompt Isolation:** Untrusted external web content isolated inside `<untrusted_source>` tags to prevent injection.
 - **Deduplication:** Company name normalization strictly precedes candidate cap evaluation.
