@@ -111,6 +111,7 @@ if st.button("🚀 Run Lead Generation Agent", type="primary", disabled=not can_
                 "CEO / Co-Founder": lead.ceo_cofounder_name,
                 "Verified Email": lead.verified_email,
                 "Email Evidence URL": lead.email_source_url,
+                "Email Source Type": lead.email_source_type or "FIRST_PARTY_OFFICIAL",
                 "Financial Evidence URL": lead.financial_source_url or "N/A",
                 "Financial Signal": lead.financial_signal,
                 "Revenue Period": lead.revenue_period or "N/A",
@@ -150,6 +151,7 @@ if st.button("🚀 Run Lead Generation Agent", type="primary", disabled=not can_
                 "Latest Round Date": rec.latest_round_date or "N/A",
                 "Evidence Date": rec.financial_evidence_date or "N/A",
                 "Recency Basis": rec.recency_basis or "N/A",
+                "Email Source Type": rec.email_source_type or "N/A",
                 "US Presence Result": rec.us_presence_result,
                 "US Presence Evidence": rec.us_presence_evidence or "None",
                 "HQ Location": rec.hq_location

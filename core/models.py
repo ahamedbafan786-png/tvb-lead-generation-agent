@@ -128,10 +128,18 @@ class FounderEvidence(BaseModel):
     source_quote: Optional[str] = None
     verification_status: Literal["VERIFIED", "UNVERIFIED", "REJECTED"] = "VERIFIED"
 
+class EmailSourceType(str, Enum):
+    FIRST_PARTY_OFFICIAL = "FIRST_PARTY_OFFICIAL"
+    FIRST_PARTY_FOUNDER_PUBLISHED = "FIRST_PARTY_FOUNDER_PUBLISHED"
+    PUBLIC_CORPORATE_RECORD = "PUBLIC_CORPORATE_RECORD"
+    THIRD_PARTY_REPORTED = "THIRD_PARTY_REPORTED"
+    INFERRED = "INFERRED"
+
 class EmailEvidence(BaseModel):
     email: Optional[str] = None
     source_url: Optional[str] = None
     source_quote: Optional[str] = None
+    source_type: Optional[str] = None
     attribution_result: Optional[str] = None
     verification_status: Literal["VERIFIED", "UNVERIFIED", "REJECTED"] = "VERIFIED"
 
@@ -151,6 +159,7 @@ class ContactPathResult(BaseModel):
     founder_source_url: Optional[str] = None
     exact_email_found: Optional[str] = None
     email_source_url: Optional[str] = None
+    email_source_type: Optional[str] = None
     attribution_context: Optional[str] = None
     contact_path_found: bool = False
     pages_checked: list[str] = Field(default_factory=list)
@@ -180,6 +189,7 @@ class CandidateAuditRecord(BaseModel):
     founder_identified: Optional[str] = None
     verified_email: Optional[str] = None
     email_source_url: Optional[str] = None
+    email_source_type: Optional[str] = None
     audit_summary: str = ""
 
     # Evidence traceability fields
@@ -195,6 +205,7 @@ class LeadRecord(BaseModel):
     ceo_cofounder_name: str
     verified_email: str
     email_source_url: str
+    email_source_type: Optional[str] = None
     hq_location: str
     financial_signal: str
     financial_evidence_date: Optional[str] = None

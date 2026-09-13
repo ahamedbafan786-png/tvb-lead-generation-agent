@@ -7,7 +7,7 @@ import re
 from typing import Optional
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from core.models import CandidateCompany, ContactPathResult
+from core.models import CandidateCompany, ContactPathResult, EmailSourceType
 from core.scraper import (
     fetch_html, find_subpages, probe_statutory_subpages,
     MAX_DISCOVERED_SUBPAGES, MAX_DIRECT_PROBES, validate_public_url
@@ -165,26 +165,123 @@ def is_email_attributed_to_founder(local_part: str, founder_tokens: list[str], f
     return False
 
 
+def classify_email_source(
+    source_url: Optional[str],
+    candidate_domain: str,
+    founder_name: Optional[str] = None,
+    context: Optional[str] = None
+) -> EmailSourceType:
+    """
+    Classifies an email source URL into a trust category:
+    - FIRST_PARTY_OFFICIAL: Official company website, official subdomains (press., blog., etc.), official press wires.
+    - FIRST_PARTY_FOUNDER_PUBLISHED: Founder's own publicly published personal/professional page.
+    - PUBLIC_CORPORATE_RECORD: Official corporate/statutory registries, filings, imprints.
+    - THIRD_PARTY_REPORTED: Third-party news, blogs, articles.
+    - INFERRED: Synthetic, guessed, or missing URL.
+    """
+    if not source_url or not source_url.strip():
+        return EmailSourceType.INFERRED
+
+    clean_url = source_url.strip()
+    url_lower = clean_url.lower()
+
+    if any(k in url_lower for k in ("inferred", "guess", "synthetic", "generated")):
+        return EmailSourceType.INFERRED
+
+    try:
+        parsed = urlparse(clean_url)
+        host = parsed.netloc.lower().replace("www.", "").split(":")[0]
+        path = parsed.path.lower()
+    except Exception:
+        return EmailSourceType.INFERRED
+
+    clean_domain = (candidate_domain or "").lower().replace("www.", "").split(":")[0].strip()
+
+    # 1. Public Corporate Records (Registries, Statutory filings, Impressum/Imprint)
+    corporate_registry_hosts = {
+        "companieshouse.gov.uk", "handelsregister.de", "infogreffe.fr",
+        "sec.gov", "gov.uk", "bundesanzeiger.de", "unternehmensregister.de",
+        "registre-du-commerce.fr", "kvk.nl", "bolagsverket.se", "brreg.no",
+        "prh.fi", "cvr.dk", "cr.gov.hk", "acra.gov.sg", "abr.business.gov.au"
+    }
+    if any(reg in host for reg in corporate_registry_hosts):
+        return EmailSourceType.PUBLIC_CORPORATE_RECORD
+
+    corporate_record_paths = ("/imprint", "/impressum", "/legal-notice", "/statutory-disclosure", "/corporate-filing", "/company-register")
+    if any(path.startswith(cp) or path.endswith(cp) or cp in path for cp in corporate_record_paths):
+        return EmailSourceType.PUBLIC_CORPORATE_RECORD
+
+    # 2. First Party Official (Company domain, official subdomains, official press releases)
+    if clean_domain and (host == clean_domain or host.endswith("." + clean_domain)):
+        return EmailSourceType.FIRST_PARTY_OFFICIAL
+
+    wire_hosts = {
+        "businesswire.com", "prnewswire.com", "globenewswire.com",
+        "prlog.org", "marketwired.com"
+    }
+    if any(wire in host for wire in wire_hosts):
+        return EmailSourceType.FIRST_PARTY_OFFICIAL
+
+    # 3. Founder's Own Publicly Published Professional Page/Profile
+    if founder_name:
+        f_tokens = [t.lower() for t in re.split(r"[\s.-]+", founder_name.strip()) if len(t) >= 3]
+        if f_tokens:
+            first_last = f"{f_tokens[0]}{f_tokens[-1]}" if len(f_tokens) >= 2 else ""
+            first_dash_last = f"{f_tokens[0]}-{f_tokens[-1]}" if len(f_tokens) >= 2 else ""
+            is_founder_domain = (
+                (first_last and first_last in host) or
+                (first_dash_last and first_dash_last in host) or
+                any(tok in host for tok in f_tokens)
+            )
+            is_founder_subpage = host in {"github.io", "github.com", "substack.com", "medium.com"} and any(tok in path for tok in f_tokens)
+            if is_founder_domain or is_founder_subpage:
+                return EmailSourceType.FIRST_PARTY_FOUNDER_PUBLISHED
+
+    # 4. Third-Party Reported (News, blogs, aggregator directories)
+    return EmailSourceType.THIRD_PARTY_REPORTED
+
+
 def evaluate_email_founder_attribution(
     email: str,
     context: str,
     founder_name: str,
     domain: str,
-    candidate_founder_title: Optional[str] = None
+    candidate_founder_title: Optional[str] = None,
+    source_url: Optional[str] = None,
+    source_type: Optional[EmailSourceType] = None
 ) -> tuple[bool, str, Optional[str]]:
     """
     Strict, fail-closed email attribution to founder.
     Requires:
-    1. Email belongs to candidate's domain (or subdomain).
-    2. Email is not generic and not a role alias.
-    3. Email local-part legitimately matches founder name tokens.
-    4. Email appears in a bounded, structured context (card, block, explicit sentence).
-    5. Context establishes founder identity (full name, or first+last tokens, no surname collision).
-    6. Context establishes executive/founder standing (CEO, Founder, etc. or explicit contact phrasing).
-    7. Context is not a guest byline, article author, or non-executive employee role.
+    1. Source is an authorized trusted public source (FIRST_PARTY_OFFICIAL, FIRST_PARTY_FOUNDER_PUBLISHED, PUBLIC_CORPORATE_RECORD).
+    2. Email domain matches candidate domain, or belongs to founder's verified published personal domain / corporate record with explicit ownership.
+    3. Email is not generic and not a role alias.
+    4. Email local-part legitimately matches founder name tokens.
+    5. Email appears in a bounded, structured context (card, block, explicit sentence).
+    6. Context establishes founder identity (full name, or first+last tokens, no surname collision).
+    7. Context establishes executive/founder standing (CEO, Founder, etc. or explicit contact phrasing).
+    8. Context is not a guest byline, article author, or non-executive employee role.
     
     Returns: (is_attributed, rule_or_reason, context_snippet)
     """
+    if source_type is None:
+        if source_url:
+            source_type = classify_email_source(source_url, domain, founder_name, context)
+        else:
+            source_type = EmailSourceType.FIRST_PARTY_OFFICIAL
+
+    # Source Trust Classification Gate
+    if source_type == EmailSourceType.INFERRED:
+        return False, "EMAIL_SOURCE_INFERRED_REJECTED", None
+    if source_type == EmailSourceType.THIRD_PARTY_REPORTED:
+        return False, "EMAIL_THIRD_PARTY_SOURCE_REJECTED", None
+    if source_type not in (
+        EmailSourceType.FIRST_PARTY_OFFICIAL,
+        EmailSourceType.FIRST_PARTY_FOUNDER_PUBLISHED,
+        EmailSourceType.PUBLIC_CORPORATE_RECORD
+    ):
+        return False, "EMAIL_SOURCE_UNTRUSTED_REJECTED", None
+
     parts = email.strip().lower().split("@")
     if len(parts) != 2:
         return False, "EMAIL_FORMAT_INVALID", None
@@ -192,8 +289,37 @@ def evaluate_email_founder_attribution(
 
     clean_domain = domain.lower().replace("www.", "").split(":")[0].strip()
     clean_email_domain = email_domain.split(":")[0].strip()
-    if clean_email_domain != clean_domain and not clean_email_domain.endswith("." + clean_domain):
-        return False, "EMAIL_EXTERNAL_DOMAIN_REJECTED", None
+    is_company_domain = (clean_email_domain == clean_domain or clean_email_domain.endswith("." + clean_domain))
+
+    if not is_company_domain:
+        # External domain email: permitted ONLY under FIRST_PARTY_FOUNDER_PUBLISHED or PUBLIC_CORPORATE_RECORD
+        # with explicit founder personal ownership.
+        if source_type not in (EmailSourceType.FIRST_PARTY_FOUNDER_PUBLISHED, EmailSourceType.PUBLIC_CORPORATE_RECORD):
+            return False, "EMAIL_EXTERNAL_DOMAIN_REJECTED", None
+
+        f_tokens_for_owner = [t.lower() for t in re.split(r"[\s.-]+", founder_name.strip()) if len(t) >= 2]
+
+        personal_email_providers = {
+            "gmail.com", "googlemail.com", "proton.me", "protonmail.com",
+            "icloud.com", "me.com", "mac.com", "outlook.com", "hotmail.com",
+            "hey.com", "fastmail.com", "pm.me"
+        }
+        source_host = ""
+        if source_url:
+            try:
+                source_host = urlparse(source_url).netloc.lower().replace("www.", "").split(":")[0]
+            except Exception:
+                pass
+
+        is_founder_domain_name = any(tok in clean_email_domain for tok in f_tokens_for_owner if len(tok) >= 3)
+        matches_source_host = bool(source_host and (clean_email_domain == source_host or clean_email_domain.endswith("." + source_host)))
+        is_personal_provider = clean_email_domain in personal_email_providers
+
+        if not (is_founder_domain_name or matches_source_host or is_personal_provider):
+            return False, "EMAIL_EXTERNAL_DOMAIN_REJECTED", None
+
+        if not is_email_attributed_to_founder(local_part, f_tokens_for_owner, founder_name.strip()):
+            return False, "EMAIL_EXTERNAL_DOMAIN_REJECTED", None
 
     if any(email.lower().startswith(gp) for gp in GENERIC_PREFIXES):
         return False, "EMAIL_ROLE_ALIAS_OR_GENERIC_REJECTED", None
@@ -305,7 +431,8 @@ def evaluate_email_founder_attribution(
         return False, "EMAIL_ATTRIBUTION_CONTEXT_INSUFFICIENT", None
 
     concise_snippet = raw_ctx[:180]
-    return True, "ACCEPTED_RULE_1", concise_snippet
+    rule_name = "ACCEPTED_RULE_1" if source_type == EmailSourceType.FIRST_PARTY_OFFICIAL else f"ACCEPTED_{source_type.value}"
+    return True, rule_name, concise_snippet
 
 
 def _safe_fetch(fetcher, url: str, domain: Optional[str] = None) -> Optional[BeautifulSoup]:
@@ -582,12 +709,15 @@ def verify_founder_email_on_site(
                 context=context,
                 founder_name=candidate.founder_name,
                 domain=domain,
-                candidate_founder_title=candidate.founder_title
+                candidate_founder_title=candidate.founder_title,
+                source_url=page_url,
+                source_type=EmailSourceType.FIRST_PARTY_OFFICIAL
             )
             if is_attributed:
                 if audit_trail is not None:
                     audit_trail["emails_found_count"] = total_emails_found
                     audit_trail["attribution_result"] = f"{rule_or_reason} ({page_url})"
+                    audit_trail["source_type"] = EmailSourceType.FIRST_PARTY_OFFICIAL.value
                     if snippet:
                         audit_trail["attribution_snippet"] = snippet
                 return email, page_url
@@ -597,6 +727,95 @@ def verify_founder_email_on_site(
         audit_trail["attribution_result"] = "NO_ATTRIBUTED_FOUNDER_EMAIL"
         audit_trail["rejection_reason"] = f"No verified founder email on site for {candidate.founder_name}. Zero-guessing enforced."
 
+    return None
+
+
+def verify_founder_email_from_public_source(
+    candidate: CandidateCompany,
+    source_url: str,
+    html_content: Optional[str] = None,
+    soup: Optional[BeautifulSoup] = None,
+    audit_trail: Optional[dict] = None
+) -> Optional[tuple[str, str, EmailSourceType]]:
+    """
+    Verifies a founder email published on a legitimate public source.
+    Accepts:
+    - FIRST_PARTY_OFFICIAL (official press release, media page, official blog)
+    - FIRST_PARTY_FOUNDER_PUBLISHED (founder's publicly published personal professional page)
+    - PUBLIC_CORPORATE_RECORD (corporate filings, registry notices, official imprint)
+    Rejects:
+    - THIRD_PARTY_REPORTED (third-party articles, news without first-party authority)
+    - INFERRED (guessed, synthetic, or missing URL)
+    
+    Returns (email, source_url, source_type) if verified, else None.
+    """
+    if not source_url or not source_url.strip():
+        if audit_trail is not None:
+            audit_trail["rejection_reason"] = "Missing or empty source_url"
+        return None
+
+    clean_url = source_url.strip()
+    is_safe, sec_reason, canon_url = validate_public_url(clean_url, resolve_dns=False)
+    if not is_safe or not canon_url:
+        if audit_trail is not None:
+            audit_trail["rejection_reason"] = f"Blocked unsafe source URL: {source_url} ({sec_reason})"
+        return None
+
+    if not candidate.founder_name:
+        if audit_trail is not None:
+            audit_trail["rejection_reason"] = "Missing founder_name"
+        return None
+
+    cand_domain = ""
+    if candidate.website_url:
+        cand_domain = urlparse(candidate.website_url).netloc.lower().replace("www.", "")
+
+    if soup is None and html_content is not None:
+        soup = BeautifulSoup(html_content, "html.parser")
+    elif soup is None:
+        soup = _safe_fetch(fetch_html, canon_url)
+
+    if not soup:
+        if audit_trail is not None:
+            audit_trail["rejection_reason"] = f"Failed to fetch content from {canon_url}"
+        return None
+
+    extracted = extract_dom_emails_with_context(soup)
+    st = classify_email_source(canon_url, cand_domain, candidate.founder_name, context=soup.get_text())
+
+    if audit_trail is not None:
+        audit_trail["source_type"] = st.value
+        audit_trail["emails_found_count"] = len(extracted)
+
+    if st not in (
+        EmailSourceType.FIRST_PARTY_OFFICIAL,
+        EmailSourceType.FIRST_PARTY_FOUNDER_PUBLISHED,
+        EmailSourceType.PUBLIC_CORPORATE_RECORD
+    ):
+        if audit_trail is not None:
+            audit_trail["rejection_reason"] = f"Source type {st.value} is not an authorized trusted public source."
+        return None
+
+    for email, context in extracted:
+        is_attributed, rule_or_reason, snippet = evaluate_email_founder_attribution(
+            email=email,
+            context=context,
+            founder_name=candidate.founder_name,
+            domain=cand_domain or urlparse(email).netloc,
+            candidate_founder_title=candidate.founder_title,
+            source_url=canon_url,
+            source_type=st
+        )
+        if is_attributed:
+            if audit_trail is not None:
+                audit_trail["attribution_result"] = f"{rule_or_reason} ({canon_url})"
+                audit_trail["source_type"] = st.value
+                if snippet:
+                    audit_trail["attribution_snippet"] = snippet
+            return email, canon_url, st
+
+    if audit_trail is not None:
+        audit_trail["rejection_reason"] = f"No attributed founder email found on {canon_url}"
     return None
 
 

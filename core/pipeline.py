@@ -11,7 +11,7 @@ from google import genai
 from core.models import (
     CandidateCompany, LeadRecord, FunnelMetrics, PipelineSummary, CandidateAuditRecord,
     ContactPathResult, AuditEvidence, EmailEvidence, USPresenceEvidence,
-    TechPlatformEvidence, FounderEvidence
+    TechPlatformEvidence, FounderEvidence, EmailSourceType
 )
 from core.config import (
     DEFAULT_MAX_SEARCH_QUERIES, MAX_SEARCH_QUERIES_CEILING, DEFAULT_TIMEOUT_SECONDS,
@@ -30,7 +30,11 @@ from core.extractor import (
 from core.gemini_client import (
     AllModelsExhaustedError, reset_model_state, all_models_exhausted
 )
-from core.email_verifier import verify_founder_email_on_site, discover_founder_contact_path
+from core.email_verifier import (
+    verify_founder_email_on_site,
+    discover_founder_contact_path,
+    verify_founder_email_from_public_source
+)
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +404,15 @@ def run_lead_pipeline(
                 email_verified = verify_founder_email_on_site(cand, audit_trail=email_audit)
             except TypeError:
                 email_verified = verify_founder_email_on_site(cand)
+            if not email_verified and cand.founder_source_url:
+                pub_res = verify_founder_email_from_public_source(
+                    candidate=cand,
+                    source_url=cand.founder_source_url,
+                    audit_trail=email_audit
+                )
+                if pub_res:
+                    email_verified = (pub_res[0], pub_res[1])
+
             if not email_verified:
                 audit_record.qualification_status = "REJECTED"
                 audit_record.rejection_stage = "EMAIL_VERIFICATION"
@@ -412,15 +425,19 @@ def run_lead_pipeline(
             email, source_url = email_verified
             metrics.passed_email_verification += 1
 
+            source_type_val = email_audit.get("source_type") or EmailSourceType.FIRST_PARTY_OFFICIAL.value
+
             audit_record.qualification_status = "ACCEPTED"
             audit_record.verified_email = email
             audit_record.email_source_url = source_url
+            audit_record.email_source_type = source_type_val
             if cand.founder_source_url:
                 audit_record.founder_source_url = cand.founder_source_url
 
             email_ev = EmailEvidence(
                 email=email,
                 source_url=source_url,
+                source_type=source_type_val,
                 attribution_result=email_audit.get("attribution_result") or "ACCEPTED_RULE_1",
                 verification_status="VERIFIED"
             )
@@ -436,6 +453,7 @@ def run_lead_pipeline(
                 ceo_cofounder_name=f"{cand.founder_name} ({cand.founder_title or 'Co-Founder'})",
                 verified_email=email,
                 email_source_url=source_url,
+                email_source_type=source_type_val,
                 hq_location=f"{cand.hq_city or 'N/A'}, {cand.hq_country or 'Unknown'}",
                 financial_signal=audit_record.financial_figure_used or "Verified Signal",
                 revenue_period=audit_record.revenue_period,
